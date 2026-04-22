@@ -467,7 +467,7 @@ def get_args():
         os.makedirs("model-conformer")
 
     parser = get_parser()
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
 
     conf = vars(args)
 
