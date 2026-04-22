@@ -1,6 +1,4 @@
 import os
-import sys
-import re
 from torch import nn, optim
 import torchaudio
 from torchaudio.models.decoder import ctc_decoder
@@ -15,7 +13,7 @@ from util.model_utils import *
 from util.tokenizer import *
 import torchaudio.transforms as T
 import torch.nn.functional as F
-import argparse
+import json
 
 from huggingface_hub import snapshot_download
 
@@ -56,9 +54,11 @@ def run(args, model, inf):
 
 
 def handler(context:nuclio_sdk.Context, event:nuclio_sdk.Event):
+    context.logger.info(f"Received event with body: {event.body}")
     model = getattr(context, 'model', None)
     args = getattr(context, 'args', None)
     inf = getattr(context, 'inf', None)
+    context.logger.info(f"Model: {model}, Args: {args}, Inference Utils: {inf}")
     try:
         transc = run(args, model, inf)
         caption = transc[0]
