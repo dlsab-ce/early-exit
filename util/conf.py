@@ -1,3 +1,4 @@
+import os
 import argparse
 import torch
 import sentencepiece as spm
@@ -82,7 +83,7 @@ def get_parser():
     parser.add_argument(
         "--load_model_dir",
         type=str,
-        default=None,
+        default="model-conformer",
         help="""
             Path to directory containing pre-trained model(s). 
             Must be used in conjunction with --avg_model_start 
@@ -461,6 +462,10 @@ def get_parser():
     return parser
 
 def get_args():
+    # create a dir to save the model if it doesn't exist
+    if not os.path.exists("model-conformer"):
+        os.makedirs("model-conformer")
+
     parser = get_parser()
     args = parser.parse_args()
 

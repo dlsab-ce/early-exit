@@ -3,3 +3,7 @@ torchaudio>=2.2,<2.5
 sentencepiece>=0.1.99
 editdistance>=0.8.1
 tensorboard>=2.14
+huggingface_hub==1.11.0
+flashlight==0.1.1
+flashlight-text==0.0.7
+soundfile==0.13.1
