@@ -58,7 +58,8 @@ def handler(context:nuclio_sdk.Context, request, event):
     model = getattr(context, 'model', None)
     args = getattr(context, 'args', None)
     inf = getattr(context, 'inf', None)
-    context.logger.info(f"Model: {model}, Args: {args}, Inference Utils: {inf}")
+    context.logger.info(f"Model: {type(model)}, Inference Utils: {inf}, Args: {args}")
+    context.logger.info(f"Current working directory: {os.getcwd()}")
     try:
         transc = run(args, model, inf)
         caption = transc[0]
