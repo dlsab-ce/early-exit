@@ -53,8 +53,8 @@ def run(args, model, inf):
     return transc
 
 
-def handler(context:nuclio_sdk.Context, event:nuclio_sdk.Event):
-    context.logger.info(f"Received event with body: {event}")
+def handler(context:nuclio_sdk.Context, request, event):
+    context.logger.info(f"Received event with body: {request} -- {event}")
     model = getattr(context, 'model', None)
     args = getattr(context, 'args', None)
     inf = getattr(context, 'inf', None)
