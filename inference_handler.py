@@ -95,6 +95,7 @@ def init_model(context, lang:str):
     #   CONFIG
     #
     context.logger.info(f"Loading model for {lang}")
+    context.logger.info(f"Current working directory: {os.getcwd()}")
     args = get_args()
 
     match lang:
