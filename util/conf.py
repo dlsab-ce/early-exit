@@ -1,4 +1,3 @@
-import os
 import argparse
 import torch
 import sentencepiece as spm
@@ -463,9 +462,6 @@ def get_parser():
 
 def get_args():
     # create a dir to save the model if it doesn't exist
-    if not os.path.exists("model-conformer"):
-        os.makedirs("model-conformer")
-
     parser = get_parser()
     args, unknown = parser.parse_known_args()
 

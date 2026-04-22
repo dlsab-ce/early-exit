@@ -96,16 +96,20 @@ def init_model(context, lang:str):
     #
     context.logger.info(f"Loading model for {lang}")
     context.logger.info(f"Current working directory: {os.getcwd()}")
-    args = get_args()
+
+    if not os.path.exists("model-conformer"):
+        os.makedirs("model-conformer")
 
     match lang:
         case "en":
-            snapshot_download(repo_id="SpeechTek/English-EE-conformer", local_dir=args.load_model_dir)
+            snapshot_download(repo_id="SpeechTek/English-EE-conformer", local_dir="model-conformer")
         case "it":
-            snapshot_download(repo_id="SpeechTek/Italian-EE-conformer", local_dir=args.load_model_dir)
+            snapshot_download(repo_id="SpeechTek/Italian-EE-conformer", local_dir="model-conformer")
         case _:
             raise ValueError(f"Lingua non supportata: {lang}")
     context.logger.info("Model from HF downloaded")
+
+    args = get_args()
     args.load_model_path = args.load_model_dir + "/model"
     
     # If model checkpoint path is provided, load it.
