@@ -29,7 +29,7 @@ def melspec_transform(waveform, args):
 
 def handler_online(args, model, valid_len, inf, dev):
     #audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-    waveform, sample_rate = torchaudio.load("/shared/2961-960-0000.flac")
+    waveform, sample_rate = torchaudio.load("/workspace/2961-960-0000.flac")
     #waveform, sample_rate = torchaudio.load("/home/daniele/early-exit-transformer/20160607-0900-PLENARY-3-it_20160607-09:32:08_3.ogg")
     spec = spec_transform(waveform, args)  # .to(device)
     spec = melspec_transform(spec, args).to(dev)
