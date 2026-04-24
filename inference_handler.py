@@ -56,7 +56,8 @@ def run(args, model, inf, audio_bytes):
 
 def handler(context:nuclio_sdk.Context, request):
     context.logger.info(f"request: {type(request)}")
-    if (request.body is not None):
+    # check if request object has body attribute, otherwise use request inputs
+    if (hasattr(request, 'body') and request.body is not None):
         data = request.body['inputs'][0]['data']
     else:
         data = request.inputs[0].data
