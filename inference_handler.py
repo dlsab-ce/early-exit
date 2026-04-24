@@ -54,46 +54,47 @@ def run(args, model, inf, audio_bytes):
     return transc
 
 
-def handler(context:nuclio_sdk.Context, request, event):
-    context.logger.info(f"Received event with body: {request} -- {event}")
-    for tensor_data in event.body.inputs:
-        context.logger.info(f"Tensor data: {tensor_data.name}, shape: {tensor_data.shape}, dtype: {tensor_data.dtype}")
-        if tensor_data.name == "audio":
-            audio_bytes = tensor_data.data[0]  # Assuming the audio data is in the first tensor
-            model = getattr(context, 'model', None)
-            args = getattr(context, 'args', None)
-            inf = getattr(context, 'inf', None)
-            context.logger.info(f"Model: {type(model)}, Inference Utils: {inf}, Args: {args}")
-            context.logger.info(f"Current working directory: {os.getcwd()}")
-            try:
-                transc = run(args, model, inf, audio_bytes)
-                caption = transc[0]
-                context.logger.info(f"caption: {caption}")
-                return context.Response(
-                    body=json.dumps({
-                        "outputs": [
-                            {
-                                "name": "caption",
-                                "datatype": "BYTES",
-                                "shape": [1, len(caption)],
-                                "data": [caption]
-                            }
-                        ]
-                    }),
-                    headers={},
-                    content_type="application/json",
-                    status_code=200
-                )        
-            except Exception as e:
-                context.logger.error(f"Error processing audio: {e}")
-                return context.Response(
-                    body=json.dumps({
-                        "error": str(e),
-                        "status": "error"
-                    }),
-                    content_type="application/json",
-                    status_code=500
-                ) 
+def handler(context:nuclio_sdk.Context, request):
+    context.logger.info(f"request: {type(request)}")
+    if (request.body is not None):
+        data = request.body['inputs'][0]['data']
+    else:
+        data = request.inputs[0].data
+    audio_bytes = bytes(data)
+    model = getattr(context, 'model', None)
+    args = getattr(context, 'args', None)
+    inf = getattr(context, 'inf', None)
+    context.logger.info(f"Model: {type(model)}, Inference Utils: {inf}, Args: {args}")
+    context.logger.info(f"Current working directory: {os.getcwd()}")
+    try:
+        transc = run(args, model, inf, audio_bytes)
+        caption = transc[0]
+        context.logger.info(f"caption: {caption}")
+        return context.Response(
+            body=json.dumps({
+                "outputs": [
+                    {
+                        "name": "caption",
+                        "datatype": "BYTES",
+                        "shape": [1, len(caption)],
+                        "data": [caption]
+                    }
+                ]
+            }),
+            headers={},
+            content_type="application/json",
+            status_code=200
+        )        
+    except Exception as e:
+        context.logger.error(f"Error processing audio: {e}")
+        return context.Response(
+            body=json.dumps({
+                "error": str(e),
+                "status": "error"
+            }),
+            content_type="application/json",
+            status_code=500
+        ) 
 
         
 def init_model(context, lang:str):
