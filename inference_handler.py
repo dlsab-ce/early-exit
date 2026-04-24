@@ -28,8 +28,9 @@ def melspec_transform(waveform, args):
     melspec_t = T.MelScale(sample_rate=args.sample_rate, n_mels=args.n_mels, n_stft=args.n_fft+1)
     return melspec_t(waveform)
 
-def handler_online(args, model, valid_len, inf, dev, waveform):
-    #waveform = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+def handler_online(args, model, valid_len, inf, dev, audio_bytes):
+    buffer  = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    waveform = torch.from_numpy(buffer)
     #waveform, sample_rate = torchaudio.load("/workspace/2961-960-0000.flac")
     #waveform, sample_rate = torchaudio.load("/home/daniele/early-exit-transformer/20160607-0900-PLENARY-3-it_20160607-09:32:08_3.ogg")
     spec = spec_transform(waveform, args)  # .to(device)
