@@ -76,6 +76,11 @@ def handler_online(args, model, valid_len, inf, dev, audio_bytes):
     if dev == "cuda":        
         best_combined = inf.ctc_cuda_predict(encoder[5], args.tokens)
         transc = args.sp.decode(best_combined[0][0].tokens).lower()
+    
+    try:
+        os.remove(filepath)  # Rimuovi il file dopo l'elaborazione
+    except Exception as e:
+        print(f"Errore durante la rimozione del file: {e}")
 
     return transc
 
