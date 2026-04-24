@@ -3,6 +3,8 @@ from torch import nn, optim
 import torchaudio
 from torchaudio.models.decoder import ctc_decoder
 import numpy as np
+import uuid
+from datetime import datetime
 
 from data import get_infer_data_loader
 from models.model.early_exit import Early_conformer, full_conformer, Early_zipformer, Splitformer
@@ -20,6 +22,34 @@ from huggingface_hub import snapshot_download
 
 import nuclio_sdk
 
+def save_audio_bytes(audio_bytes, output_dir="audio_output", file_extension=".flac"):
+    """
+    Salva audio_bytes su disco con un nome univoco.
+    
+    Args:
+        audio_bytes (bytes): Array di byte dell'audio da salvare
+        output_dir (str): Directory dove salvare il file (default: "audio_output")
+        file_extension (str): Estensione del file (default: ".flac")
+        
+    Returns:
+        str: Percorso completo del file salvato
+    """
+    # Crea la directory se non esiste
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    # Genera nome univoco usando UUID e timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_id = str(uuid.uuid4())[:8]
+    filename = f"audio_{timestamp}_{unique_id}{file_extension}"
+    filepath = os.path.join(output_dir, filename)
+    
+    # Scrivi i byte su file
+    with open(filepath, 'wb') as f:
+        f.write(audio_bytes)
+    
+    return filepath
+
 def spec_transform(waveform, args):
     spec_t = T.Spectrogram(n_fft=args.n_fft * 2, hop_length=args.hop_length, win_length=args.win_length)
     return spec_t(waveform)
@@ -29,8 +59,10 @@ def melspec_transform(waveform, args):
     return melspec_t(waveform)
 
 def handler_online(args, model, valid_len, inf, dev, audio_bytes):
-    buffer  = np.frombuffer(audio_bytes, dtype=np.int8).astype(np.float32) / 32768.0
-    waveform = torch.from_numpy(buffer)
+    filepath = save_audio_bytes(audio_bytes)
+    waveform, sample_rate = torchaudio.load(filepath)
+    #buffer  = np.frombuffer(audio_bytes, dtype=np.int8).astype(np.float32) / 32768.0
+    #waveform = torch.from_numpy(buffer)
     #waveform, sample_rate = torchaudio.load("/workspace/2961-960-0000.flac")
     #waveform, sample_rate = torchaudio.load("/home/daniele/early-exit-transformer/20160607-0900-PLENARY-3-it_20160607-09:32:08_3.ogg")
     spec = spec_transform(waveform, args)  # .to(device)
