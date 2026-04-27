@@ -103,8 +103,8 @@ def handler(context:nuclio_sdk.Context, request):
     model = getattr(context, 'model', None)
     args = getattr(context, 'args', None)
     inf = getattr(context, 'inf', None)
-    context.logger.info(f"Model: {type(model)}, Inference Utils: {inf}, Args: {args}")
-    context.logger.info(f"Current working directory: {os.getcwd()}")
+    #context.logger.info(f"Model: {type(model)}, Inference Utils: {inf}, Args: {args}")
+    #context.logger.info(f"Current working directory: {os.getcwd()}")
     try:
         transc = run(args, model, inf, audio_bytes)
         caption = transc[0]
@@ -136,7 +136,7 @@ def handler(context:nuclio_sdk.Context, request):
         ) 
 
         
-def init_model(context, lang:str):
+def init_model(context, lang:str, device:str = "cpu"):
     #
     #   CONFIG
     #
@@ -162,7 +162,7 @@ def init_model(context, lang:str):
     # (Overrides conf parameters)
     
     args.batch_size=1
-    args.device="cpu"
+    args.device=device
     
     # Parse config from command line arguments
 
