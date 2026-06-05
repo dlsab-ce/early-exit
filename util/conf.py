@@ -46,6 +46,15 @@ def get_parser():
     )
 
     parser.add_argument(
+        "--online_batch",
+        type=bool,
+        default=False,
+        help="""
+            Use inference_online with a pre-recorded audio file instead of streaming from microphone.
+        """
+    )
+    
+    parser.add_argument(
         "--distill",
         type=bool,
         default=False,
@@ -282,7 +291,7 @@ def get_parser():
 
     parser.add_argument(
         "--drop_prob",
-        type=int,
+        type=float,
         default=0.1,
         help="""
             Probability of a given element of the input to be 
@@ -461,7 +470,6 @@ def get_parser():
     return parser
 
 def get_args():
-    # create a dir to save the model if it doesn't exist
     parser = get_parser()
     args, unknown = parser.parse_known_args()
 

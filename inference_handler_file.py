@@ -1,0 +1,202 @@
+import os
+from torch import nn, optim
+import torchaudio
+from torchaudio.models.decoder import ctc_decoder
+import numpy as np
+import uuid
+from datetime import datetime
+
+from data import get_infer_data_loader
+from models.model.early_exit import Early_conformer, full_conformer, Early_zipformer, Splitformer
+from util.beam_infer import BeamInference
+from util.conf import get_args
+from util.data_loader import text_transform
+from util.epoch_timer import epoch_time
+from util.model_utils import *
+from util.tokenizer import *
+import torchaudio.transforms as T
+import torch.nn.functional as F
+import json
+
+from huggingface_hub import snapshot_download
+
+import nuclio_sdk
+
+def save_audio_bytes(audio_bytes, output_dir="audio_output", file_extension=".flac"):
+    """
+    Salva audio_bytes su disco con un nome univoco.
+    
+    Args:
+        audio_bytes (bytes): Array di byte dell'audio da salvare
+        output_dir (str): Directory dove salvare il file (default: "audio_output")
+        file_extension (str): Estensione del file (default: ".flac")
+        
+    Returns:
+        str: Percorso completo del file salvato
+    """
+    # Crea la directory se non esiste
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    # Genera nome univoco usando UUID e timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique_id = str(uuid.uuid4())[:8]
+    filename = f"audio_{timestamp}_{unique_id}{file_extension}"
+    filepath = os.path.join(output_dir, filename)
+    
+    # Scrivi i byte su file
+    with open(filepath, 'wb') as f:
+        f.write(audio_bytes)
+    
+    return filepath
+
+def spec_transform(waveform, args):
+    spec_t = T.Spectrogram(n_fft=args.n_fft * 2, hop_length=args.hop_length, win_length=args.win_length)
+    return spec_t(waveform)
+
+def melspec_transform(waveform, args):
+    melspec_t = T.MelScale(sample_rate=args.sample_rate, n_mels=args.n_mels, n_stft=args.n_fft+1)
+    return melspec_t(waveform)
+
+def handler_online(args, model, valid_len, inf, dev, audio_bytes):
+    filepath = save_audio_bytes(audio_bytes)
+    waveform, sample_rate = torchaudio.load(filepath)
+    #buffer  = np.frombuffer(audio_bytes, dtype=np.int8).astype(np.float32) / 32768.0
+    #waveform = torch.from_numpy(buffer)
+    #waveform, sample_rate = torchaudio.load("/workspace/2961-960-0000.flac")
+    #waveform, sample_rate = torchaudio.load("/home/daniele/early-exit-transformer/20160607-0900-PLENARY-3-it_20160607-09:32:08_3.ogg")
+    spec = spec_transform(waveform, args)  # .to(device)
+    spec = melspec_transform(spec, args).to(dev)
+    valid_len = torch.tensor([spec.size(2)])
+    encoder = model(spec.to(args.device), valid_len)
+
+    transc = None
+    if dev == "cpu":
+        transc = inf.ctc_predict_(encoder[5])
+    if dev == "cuda":        
+        best_combined = inf.ctc_cuda_predict(encoder[5], args.tokens)
+        transc = args.sp.decode(best_combined[0][0].tokens).lower()
+    
+    try:
+        os.remove(filepath)  # Rimuovi il file dopo l'elaborazione
+    except Exception as e:
+        print(f"Errore durante la rimozione del file: {e}")
+
+    return transc
+
+
+def run(args, model, inf, audio_bytes):
+    valid_len = 0
+    dev=args.device  #cuda #cpu
+    transc = handler_online(args, model, valid_len, inf, dev, audio_bytes)
+    return transc
+
+
+def handler(context:nuclio_sdk.Context, request):
+    context.logger.info(f"request: {type(request)}")
+    # check if request object has body attribute, otherwise use request inputs
+    if (hasattr(request, 'body') and request.body is not None):
+        data = request.body['inputs'][0]['data']
+    else:
+        data = request.inputs[0].data
+    audio_bytes = bytes(data)
+    model = getattr(context, 'model', None)
+    args = getattr(context, 'args', None)
+    inf = getattr(context, 'inf', None)
+    #context.logger.info(f"Model: {type(model)}, Inference Utils: {inf}, Args: {args}")
+    #context.logger.info(f"Current working directory: {os.getcwd()}")
+    try:
+        transc = run(args, model, inf, audio_bytes)
+        caption = transc[0]
+        context.logger.info(f"caption: {caption}")
+        return context.Response(
+            body=json.dumps({
+                "outputs": [
+                    {
+                        "name": "caption",
+                        "datatype": "BYTES",
+                        "shape": [1, len(caption)],
+                        "data": [caption]
+                    }
+                ]
+            }),
+            headers={},
+            content_type="application/json",
+            status_code=200
+        )        
+    except Exception as e:
+        context.logger.error(f"Error processing audio: {e}")
+        return context.Response(
+            body=json.dumps({
+                "error": str(e),
+                "status": "error"
+            }),
+            content_type="application/json",
+            status_code=500
+        ) 
+
+        
+def init_model(context, lang:str, device:str = "cpu"):
+    #
+    #   CONFIG
+    #
+    context.logger.info(f"Loading model for {lang}")
+    context.logger.info(f"Current working directory: {os.getcwd()}")
+
+    if not os.path.exists("model-conformer"):
+        os.makedirs("model-conformer")
+
+    match lang:
+        case "en":
+            snapshot_download(repo_id="SpeechTek/English-EE-conformer", local_dir="model-conformer")
+        case "it":
+            snapshot_download(repo_id="SpeechTek/Italian-EE-conformer", local_dir="model-conformer")
+        case _:
+            raise ValueError(f"Lingua non supportata: {lang}")
+    context.logger.info("Model from HF downloaded")
+
+    args = get_args()
+    args.load_model_path = args.load_model_dir + "/model"
+    
+    # If model checkpoint path is provided, load it.
+    # (Overrides conf parameters)
+    
+    args.batch_size=1
+    args.device=device
+    
+    # Parse config from command line arguments
+
+    # Define model
+    print(args)
+
+    model = Early_conformer(src_pad_idx=args.src_pad_idx,
+                                    n_enc_exits=args.n_enc_exits,
+                                    d_model=args.d_model,
+                                    enc_voc_size=args.enc_voc_size,
+                                    dec_voc_size=args.dec_voc_size,
+                                    max_len=args.max_len,
+                                    d_feed_forward=args.d_feed_forward,
+                                    n_head=args.n_heads,
+                                    n_enc_layers=args.n_enc_layers_per_exit,
+                                    features_length=args.n_mels,
+                                    drop_prob=args.drop_prob,
+                                    depthwise_kernel_size=args.depthwise_kernel_size,
+                                    device=args.device).to(args.device)
+    context.logger.info("Conformer done")
+
+    model_path=args.load_model_dir+"/model"
+    model.load_state_dict(torch.load(model_path, map_location=args.device, weights_only=True))
+    context.logger.info(f'The model has {count_parameters(model):,} trainable parameters')
+    #torch.multiprocessing.set_start_method('spawn')
+    torch.set_num_threads(args.n_threads)
+    
+    # Used to access various inference functions, see util/beam_infer
+    inf = BeamInference(args=args)
+    context.logger.info("BeamInference done")
+
+    # add model to context
+    #run(model=model, args=args, inf=inf)
+    setattr(context, "model", model)
+    setattr(context, "args", args)
+    setattr(context, "inf", inf)
+    

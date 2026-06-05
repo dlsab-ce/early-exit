@@ -1,4 +1,5 @@
 import os
+from urllib import request
 from torch import nn, optim
 import torchaudio
 from torchaudio.models.decoder import ctc_decoder
@@ -22,108 +23,110 @@ from huggingface_hub import snapshot_download
 
 import nuclio_sdk
 
-def save_audio_bytes(audio_bytes, output_dir="audio_output", file_extension=".flac"):
-    """
-    Salva audio_bytes su disco con un nome univoco.
-    
-    Args:
-        audio_bytes (bytes): Array di byte dell'audio da salvare
-        output_dir (str): Directory dove salvare il file (default: "audio_output")
-        file_extension (str): Estensione del file (default: ".flac")
-        
-    Returns:
-        str: Percorso completo del file salvato
-    """
-    # Crea la directory se non esiste
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    
-    # Genera nome univoco usando UUID e timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    unique_id = str(uuid.uuid4())[:8]
-    filename = f"audio_{timestamp}_{unique_id}{file_extension}"
-    filepath = os.path.join(output_dir, filename)
-    
-    # Scrivi i byte su file
-    with open(filepath, 'wb') as f:
-        f.write(audio_bytes)
-    
-    return filepath
+#############################################
+# PARAMETRI AUDIO E FINESTRE
+#############################################
+
+SAMPLE_RATE = 16000
+
+
+LOOKBEHIND_SEC = 2.5 #0.5
+CHUNK_SEC      = 0.51 #2.0
+LOOKAHEAD_SEC  = 0.5 #0.5
+
+LB = int(LOOKBEHIND_SEC * SAMPLE_RATE)
+CK = int(CHUNK_SEC      * SAMPLE_RATE)
+LA = int(LOOKAHEAD_SEC  * SAMPLE_RATE)
+
+WINDOW = LB + CK + LA   # 4 secondi = 64000 campioni
+ADVANCE = CK            # avanza di 2 secondi = 32000 campioni
+
+# buffer PCM per accumulare voce
+#pcm_buffer = deque(maxlen=SAMPLE_RATE * 60)  # 60 s max
+
+# per segmentazione basata su heartbeat
+SEGMENT_TIMEOUT = 2000 # 800 ms di soli heartbeat = fine segmento
+FRAME_MS = 30
+FRAME_TIMEOUT = SEGMENT_TIMEOUT / FRAME_MS
+
+# parametri encoder
+SUBSAMPLING = 4
+FEAT_FPS = 100  # feature frame per secondo prima del subsampling
+EMB_PS = FEAT_FPS // SUBSAMPLING
+LB_e = int(LOOKBEHIND_SEC * EMB_PS )
+CK_e = int(CHUNK_SEC  * EMB_PS)
+
 
 def spec_transform(waveform, args):
     spec_t = T.Spectrogram(n_fft=args.n_fft * 2, hop_length=args.hop_length, win_length=args.win_length)
     return spec_t(waveform)
 
+
 def melspec_transform(waveform, args):
     melspec_t = T.MelScale(sample_rate=args.sample_rate, n_mels=args.n_mels, n_stft=args.n_fft+1)
     return melspec_t(waveform)
 
-def handler_online(args, model, valid_len, inf, dev, audio_bytes):
-    filepath = save_audio_bytes(audio_bytes)
-    waveform, sample_rate = torchaudio.load(filepath)
-    #buffer  = np.frombuffer(audio_bytes, dtype=np.int8).astype(np.float32) / 32768.0
-    #waveform = torch.from_numpy(buffer)
-    #waveform, sample_rate = torchaudio.load("/workspace/2961-960-0000.flac")
-    #waveform, sample_rate = torchaudio.load("/home/daniele/early-exit-transformer/20160607-0900-PLENARY-3-it_20160607-09:32:08_3.ogg")
-    spec = spec_transform(waveform, args)  # .to(device)
-    spec = melspec_transform(spec, args).to(dev)
-    valid_len = torch.tensor([spec.size(2)])
-    encoder = model(spec.to(args.device), valid_len)
 
-    transc = None
-    if dev == "cpu":
-        transc = inf.ctc_predict_(encoder[5])
-    if dev == "cuda":        
-        best_combined = inf.ctc_cuda_predict(encoder[5], args.tokens)
-        transc = args.sp.decode(best_combined[0][0].tokens).lower()
-    
-    try:
-        os.remove(filepath)  # Rimuovi il file dopo l'elaborazione
-    except Exception as e:
-        print(f"Errore durante la rimozione del file: {e}")
-
-    return transc
-
-
-def run(args, model, inf, audio_bytes):
-    valid_len = 0
-    dev=args.device  #cuda #cpu
-    transc = handler_online(args, model, valid_len, inf, dev, audio_bytes)
-    return transc
-
-
-def handler(context:nuclio_sdk.Context, request):
-    context.logger.info(f"request: {type(request)}")
-    # check if request object has body attribute, otherwise use request inputs
-    if (hasattr(request, 'body') and request.body is not None):
-        data = request.body['inputs'][0]['data']
-    else:
-        data = request.inputs[0].data
-    audio_bytes = bytes(data)
+def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
+    context.logger.info(f"start request handler at {datetime.now().isoformat()}")
+    audio_bytes = event.body
     model = getattr(context, 'model', None)
     args = getattr(context, 'args', None)
     inf = getattr(context, 'inf', None)
     #context.logger.info(f"Model: {type(model)}, Inference Utils: {inf}, Args: {args}")
     #context.logger.info(f"Current working directory: {os.getcwd()}")
+    buffer = getattr(context, 'buffer', None)
+    if buffer is None:
+        buffer = np.zeros(0, dtype=np.float32)
+        setattr(context, 'buffer', buffer)
+    
     try:
-        transc = run(args, model, inf, audio_bytes)
-        caption = transc[0]
-        context.logger.info(f"caption: {caption}")
-        return context.Response(
-            body=json.dumps({
-                "outputs": [
-                    {
-                        "name": "caption",
-                        "datatype": "BYTES",
-                        "shape": [1, len(caption)],
-                        "data": [caption]
-                    }
-                ]
-            }),
-            headers={},
-            content_type="application/json",
-            status_code=200
-        )        
+    # create buffer window and update buffer
+        if len(audio_bytes) > 0:
+            pcm_buffer = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+            buffer = np.concatenate([buffer, pcm_buffer])
+            window, buffer = build_window_from_buffer(buffer, final_flush=False)   
+            setattr(context, 'buffer', buffer)
+            if window is None: 
+                return void_response()
+            
+            # --- Estrai SOLO la parte centrale (2 secondi) ---
+            central = window[LB : LB + CK]   # float32 [-1,1]
+            wav = torch.from_numpy(window).unsqueeze(0)  # (1, T)
+            spec = spec_transform(wav, args)
+            dev=args.device  #cuda #cpu
+            spec = melspec_transform(spec, args).to(dev)
+            valid_len = torch.tensor([spec.size(2)])
+            encoder = model(spec, valid_len)
+            enc = encoder[5]   # (B, T_enc, D)
+            B, T_full, D = enc.shape
+            enc_central = enc[:, LB_e : LB_e + CK_e, :]
+            # decodifica
+            transc = inf.stream_decoder(emission=enc_central, partial=True)
+            # Normalizza l’output
+            if isinstance(transc, list):
+                caption = " ".join(transc)      # <-- qui mettiamo gli spazi
+            else:
+                caption = str(transc)
+
+            #transc = run(args, model, inf, audio_bytes)
+            #caption = transc[0]
+            context.logger.info(f"caption: {caption}")
+            return context.Response(
+                body=json.dumps({
+                    "outputs": [
+                        {
+                            "name": "caption",
+                            "datatype": "BYTES",
+                            "shape": [1, len(caption)],
+                            "data": [caption]
+                        }
+                    ]
+                }),
+                headers={},
+                content_type="application/json",
+                status_code=200
+            )        
     except Exception as e:
         context.logger.error(f"Error processing audio: {e}")
         return context.Response(
@@ -135,8 +138,26 @@ def handler(context:nuclio_sdk.Context, request):
             status_code=500
         ) 
 
-        
-def init_model(context, lang:str, device:str = "cpu"):
+
+def void_response():
+    caption = "..."
+    return nuclio_sdk.Response(
+        body=json.dumps({
+            "outputs": [
+                {
+                    "name": "caption",
+                    "datatype": "BYTES",
+                    "shape": [1, len(caption)],
+                    "data": [caption]
+                }
+            ]
+        }),
+        headers={},
+        content_type="application/json",
+        status_code=200
+    )
+
+def init_model(context:nuclio_sdk.Context, lang:str, device:str = "cpu"):
     #
     #   CONFIG
     #
@@ -200,3 +221,48 @@ def init_model(context, lang:str, device:str = "cpu"):
     setattr(context, "args", args)
     setattr(context, "inf", inf)
     
+
+def build_window_from_buffer(buffer, final_flush=False):
+    """
+    buffer: numpy array float32 mono
+    LB_SAMPLES: look-behind in samples
+    CK_SAMPLES: central chunk in samples
+    LA_SAMPLES: look-ahead in samples
+    final_flush: True quando il VAD dice che ha finito lo speech
+    """
+
+    LB_SAMPLES = LB
+    CK_SAMPLES = CK
+    LA_SAMPLES = LA
+    total_needed = LB_SAMPLES + CK_SAMPLES + LA_SAMPLES
+
+    if final_flush:
+
+        if len(buffer) < CK_SAMPLES:
+            return None, buffer
+        else:
+            LB_ = buffer[:LB_SAMPLES]
+            CK_ = buffer[LB_SAMPLES : LB_SAMPLES + CK_SAMPLES]
+            LA_ = buffer[LB_SAMPLES + CK_SAMPLES : len(buffer)]    
+        
+            window = np.concatenate([LB_, CK_, LA_])
+            #print("W_FLUSH:",len(window))
+            # Avanza il buffer di CK 
+            buffer = buffer[CK_SAMPLES:]
+            return window, buffer
+    else:
+        # Se non abbiamo abbastanza aspettiamo ancora look-ahead
+        if len(buffer) < total_needed:
+            return None, buffer
+
+        # Caso normale: finestra completa
+        LB_ = buffer[:LB_SAMPLES]
+        CK_ = buffer[LB_SAMPLES : LB_SAMPLES + CK_SAMPLES]
+        LA_ = buffer[LB_SAMPLES + CK_SAMPLES : ,]
+
+        window = np.concatenate([LB_, CK_, LA_])
+        
+        # Avanza il buffer di CK 
+        buffer = buffer[CK_SAMPLES:]
+
+        return window, buffer

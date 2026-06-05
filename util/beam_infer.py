@@ -1,10 +1,16 @@
-import os
+import os, sys
 import torch
 from dataclasses import dataclass
 from typing import List
 import torch.nn.functional as F
-from torchaudio.models.decoder import ctc_decoder, cuda_ctc_decoder
+import torchaudio, math
+from torchaudio.models.decoder import ctc_decoder, cuda_ctc_decoder, CTCDecoder
 
+from flashlight.lib.text.dictionary import (
+    create_word_dict as _create_word_dict,
+    Dictionary as _Dictionary,
+    load_words as _load_words,
+)
 
 class GreedyCTCDecoder(torch.nn.Module):
     def __init__(self, blank=0):
@@ -23,6 +29,238 @@ class GreedyCTCDecoder(torch.nn.Module):
         indices = [i for i in indices if i != self.blank]
         return indices
 
+
+class TreeNode:
+    def __init__(self):
+        self.children = {}
+        self.is_word = False
+        self.word = None
+
+def build_tree(lexicon):
+    root = TreeNode()
+    for word, chars in lexicon.items():
+        node = root
+        for c in chars:
+            if c not in node.children:
+                node.children[c] = TreeNode()
+            node = node.children[c]
+        node.is_word = True
+        node.word = word
+    return root
+                    
+def print_trie(node, prefix=""):
+    for char, child in node.children.items():
+        if child.is_word:
+            print(prefix + char + "  →  " + child.word)
+        else:
+            print(prefix + char)
+        print_trie(child, prefix + "  ")
+        
+def print_node(node, label):
+    print(label, end=": ")
+    print(node.word)
+    
+class StreamingGreedyLexiconCTC:
+    def __init__(self, trie_root, tokens=None, blank=0):
+        self.trie_root = trie_root
+        self.blank = tokens[blank]
+        self.tokens=tokens
+        self.reset()
+    def reset(self):
+        self.node = self.trie_root
+        self.prev_token = None
+        self.current_tokens = []
+        self.candidate_word = None   # parola trovata ma NON ancora emessa
+        self.words = []
+
+    def _commit_word(self):
+        if self.candidate_word is not None:
+            self.words.append(self.candidate_word)
+        # reset stato parola
+        self.candidate_word = None
+        self.current_tokens = []
+        self.node = self.trie_root
+
+    def step(self, frame_logits):
+        token = self.tokens[frame_logits.argmax().item()]
+        # Regole CTC: blank = fine parola
+        if token == self.blank:
+            #self._commit_word()
+            #self.prev_token = token
+            return
+
+        # Regola CTC: ignora ripetizioni
+        if token == self.prev_token:
+            self.prev_token = token
+            return
+
+        self.prev_token = token
+
+        # Token valido nel trie?
+        if token in self.node.children:
+            #print_node(self.node,"FATHER")
+            self.node = self.node.children[token]
+            #print_node(self.node,"CHILDREN")            
+            self.current_tokens.append(token)
+
+            # Se e` una parola completa si segna come candidata (ma NON emettere)
+            if self.node.is_word:
+                #print("WORD: ",self.node.word)
+                self.candidate_word = self.node.word
+        else:
+            # Token non valido e` commit della parola candidata
+            self._commit_word()
+            #print_node(self.node,"COMMIT")
+            # Prova a ripartire da zero con questo token
+            if token in self.trie_root.children:
+                self.node = self.trie_root.children[token]
+                #print_node(self.node,"RIPARTITO")
+                self.current_tokens = [token]
+                if self.node.is_word:
+                    self.candidate_word = self.node.word
+            else:
+                # Token completamente fuori lessico
+                self.node = self.trie_root
+                self.current_tokens = []
+                self.candidate_word = None
+
+    def get_partial(self):
+        return list(self.words)
+
+    def finalize(self):
+        self._commit_word()
+        return list(self.words)
+
+
+def logsumexp(a, b):
+    if a == -float('inf'): return b
+    if b == -float('inf'): return a
+    m = max(a, b)
+    return m + math.log(math.exp(a - m) + math.exp(b - m))
+
+class BeamState:
+    def __init__(self, node, tokens, cand_word, words,
+                 p_b, p_nb, prev_token):
+        self.node = node
+        self.tokens = tokens
+        self.cand_word = cand_word
+        self.words = words
+        self.p_b = p_b
+        self.p_nb = p_nb
+        self.prev_token = prev_token
+
+    @property
+    def logp(self):
+        return logsumexp(self.p_b, self.p_nb)
+
+    def key(self):
+        return (id(self.node), tuple(self.tokens), tuple(self.words), self.cand_word)
+
+class StreamingCTCBeamSearchLexicon:
+    def __init__(self, trie_root, token_dict, blank, beam_size=5):
+        self.trie_root = trie_root
+        self.token_dict = token_dict
+        self.blank = blank
+        self.beam_size = beam_size
+        self.reset()
+
+    def reset(self):
+        self.beams = [
+            BeamState(
+                node=self.trie_root,
+                tokens=[],
+                cand_word=None,
+                words=[],
+                p_b=0.0,
+                p_nb=-float('inf'),
+                prev_token=None
+            )
+        ]
+
+    def step(self, frame_logprobs):
+        new_beams = {}
+
+        for beam in self.beams:
+            V = frame_logprobs.size(0)
+
+            for tok_ in range(V):
+                token = self.token_dict[tok_]
+                lp = frame_logprobs[tok_].item()
+
+                # --- CTC prefix update ---
+                if tok_ == self.blank:
+                    new_p_b = logsumexp(beam.p_b, beam.p_nb) + lp
+                    new_p_nb = -float('inf')
+                    new_prev = tok_
+                    node = beam.node
+                    tokens = list(beam.tokens)
+                    cand_word = beam.cand_word
+                    words = list(beam.words)
+
+                else:
+                    if tok_ == beam.prev_token:
+                        new_p_nb = beam.p_nb + lp
+                    else:
+                        new_p_nb = logsumexp(beam.p_b, beam.p_nb) + lp
+
+                    new_p_b = -float('inf')
+                    new_prev = tok_
+
+                    # --- Trie integration ---
+                    node = beam.node
+                    tokens = list(beam.tokens)
+                    cand_word = beam.cand_word
+                    words = list(beam.words)
+
+                    if token in node.children:
+                        node = node.children[token]
+                        tokens.append(token)
+                        if node.is_word:
+                            cand_word = node.word
+                    else:
+                        if cand_word is not None:
+                            words = words + [cand_word]
+                        cand_word = None
+                        tokens = []
+                        node = self.trie_root
+
+                        if token in node.children:
+                            node = node.children[token]
+                            tokens = [token]
+                            if node.is_word:
+                                cand_word = node.word
+                        else:
+                            continue  # percorso OOV → scartato
+
+                new_state = BeamState(node, tokens, cand_word, words,
+                                      new_p_b, new_p_nb, new_prev)
+
+                k = new_state.key()
+                if k not in new_beams:
+                    new_beams[k] = new_state
+                else:
+                    old = new_beams[k]
+                    old.p_b = logsumexp(old.p_b, new_state.p_b)
+                    old.p_nb = logsumexp(old.p_nb, new_state.p_nb)
+
+        beams = list(new_beams.values())
+        beams.sort(key=lambda b: b.logp, reverse=True)
+        self.beams = beams[:self.beam_size]
+
+    def get_partial(self):
+        best = max(self.beams, key=lambda b: b.logp)
+        out = list(best.words)
+        if best.cand_word is not None:
+            out.append(best.cand_word)
+        return out
+
+    def finalize(self):
+        for b in self.beams:
+            if b.cand_word is not None:
+                b.words = b.words + [b.cand_word]
+                b.cand_word = None
+        best = max(self.beams, key=lambda b: b.logp)
+        return list(best.words)
 
 @dataclass
 class Point:
@@ -49,6 +287,22 @@ class BeamInference(object):
         '''
 
         if args.bpe == True:
+            lex_dict = {}
+            tok_dict = {}
+            with open(args.lexicon, "r", encoding="utf-8") as f:
+                for line in f:
+                    parts = line.strip().split()
+                    parola = parts[0]
+                    caratteri = parts[1:]
+                    lex_dict[parola] = caratteri
+
+            with open(args.tokens, "r", encoding="utf-8") as f:
+                for i, line in enumerate(f):
+                    tok_dict[i] = line.strip()
+
+            tree_lex = build_tree(lex_dict)
+            #print_trie(tree_lex)
+            #sys.exit()
             self.decoder = []
             # for w_ins in [-1,-1,-1,-1,-1, -1]: #valori positivi aumentano le inserzioni
             for w_ins in [0, 0, 0, 0, 0, 0]:  # valori positivi aumentano le inserzioni
@@ -63,6 +317,18 @@ class BeamInference(object):
                                              blank_token="@",
                                              unk_word="<unk>",
                                              sil_token="<pad>")]
+            self.s_decoder_ = ctc_decoder(lexicon=args.lexicon,
+                                        tokens=args.tokens,
+                                        nbest=self.N_BEST,
+                                        log_add=False,
+                                        beam_size=args.beam_size,  # 0, #500,
+                                        word_score=0,
+                                        lm_weight=self.LM_WEIGHT,
+                                        blank_token="@",
+                                        unk_word="<unk>",
+                                        sil_token="<pad>")
+            #self.s_decoder=StreamingGreedyLexiconCTC(tree_lex, tokens=tok_dict, blank=0)
+            self.s_decoder=StreamingCTCBeamSearchLexicon(tree_lex, token_dict=tok_dict, blank=0)
         else:
             self.beam_search_decoder = ctc_decoder(
                 lexicon=args.lexicon,
@@ -82,7 +348,18 @@ class BeamInference(object):
 
         self.greedy_decoder = GreedyCTCDecoder()
 
-
+    def stream_decoder(self,emission=None, partial=False):
+        if partial:
+            emission=emission.squeeze(0)
+            for t in range(emission.size(0)):
+                self.s_decoder.step(emission[t])
+            partial_transc = self.s_decoder.get_partial()
+            return(partial_transc)
+        else:
+            final = self.s_decoder.finalize()
+            self.s_decoder.reset()
+        return(final)
+            
     def beam_predict(self, model, input_sequence):
         emission = model.ctc_encoder(input_sequence)
         beam_search_result = self.beam_search_decoder(emission.cpu())
