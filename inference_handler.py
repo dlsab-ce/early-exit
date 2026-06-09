@@ -85,13 +85,14 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
         if len(audio_bytes) > 0:
             pcm_buffer = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
             buffer = np.concatenate([buffer, pcm_buffer])
-            window, buffer = build_window_from_buffer(buffer, final_flush=False)   
             setattr(context, 'buffer', buffer)
+            #window, buffer = build_window_from_buffer(buffer, final_flush=False)   
+            window = buffer
             if window is None: 
                 return void_response()
             
             # --- Estrai SOLO la parte centrale (2 secondi) ---
-            central = window[LB : LB + CK]   # float32 [-1,1]
+            #central = window[LB : LB + CK]   # float32 [-1,1]
             wav = torch.from_numpy(window).unsqueeze(0)  # (1, T)
             spec = spec_transform(wav, args)
             dev=args.device  #cuda #cpu
@@ -99,10 +100,10 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
             valid_len = torch.tensor([spec.size(2)])
             encoder = model(spec, valid_len)
             enc = encoder[5]   # (B, T_enc, D)
-            B, T_full, D = enc.shape
-            enc_central = enc[:, LB_e : LB_e + CK_e, :]
+            #B, T_full, D = enc.shape
+            #enc_central = enc[:, LB_e : LB_e + CK_e, :]
             # decodifica
-            transc = inf.stream_decoder(emission=enc_central, partial=True)
+            transc = inf.stream_decoder(emission=enc, partial=True)
             # Normalizza l’output
             if isinstance(transc, list):
                 caption = " ".join(transc)      # <-- qui mettiamo gli spazi
@@ -126,7 +127,10 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
                 headers={},
                 content_type="application/json",
                 status_code=200
-            )        
+            ) 
+        else:
+            context.logger.info("No audio data received in the request")
+            return void_response()       
     except Exception as e:
         context.logger.error(f"Error processing audio: {e}")
         return context.Response(
