@@ -87,7 +87,7 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
             buffer = np.concatenate([buffer, pcm_buffer])
             setattr(context, 'buffer', buffer)
             #window, buffer = build_window_from_buffer(buffer, final_flush=False)   
-            window = buffer
+            window = pcm_buffer
             if window is None: 
                 return void_response()
             
