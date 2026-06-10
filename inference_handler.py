@@ -103,13 +103,13 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
             #B, T_full, D = enc.shape
             #enc_central = enc[:, LB_e : LB_e + CK_e, :]
             # decodifica
-            #transc = inf.stream_decoder(emission=enc, partial=True)
             transc = None
-            if dev == "cpu":
-                transc = inf.ctc_predict_(encoder[5])
-            if dev == "cuda":        
-                best_combined = inf.ctc_cuda_predict(encoder[5], args.tokens)
-                transc = args.sp.decode(best_combined[0].tokens).lower()
+            transc = inf.stream_decoder(emission=enc, partial=True)
+            # if dev == "cpu":
+            #     transc = inf.ctc_predict_(encoder[5])
+            # if dev == "cuda":        
+            #     best_combined = inf.ctc_cuda_predict(encoder[5], args.tokens)
+            #     transc = args.sp.decode(best_combined[0].tokens).lower()
             # Normalizza l’output
             if isinstance(transc, list):
                 caption = " ".join(transc)      # <-- qui mettiamo gli spazi
