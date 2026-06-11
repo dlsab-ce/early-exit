@@ -88,8 +88,8 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
         if len(audio_bytes) > 0:
             pcm_buffer = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
             buffer = np.concatenate([buffer, pcm_buffer])
-            setattr(context, 'buffer', buffer)
             window, buffer = build_window_from_buffer(buffer, final_flush=False)   
+            setattr(context, 'buffer', buffer)
             #window = pcm_buffer
             if window is None: 
                 return void_response()
