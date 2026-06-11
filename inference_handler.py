@@ -38,6 +38,8 @@ LB = int(LOOKBEHIND_SEC * SAMPLE_RATE)
 CK = int(CHUNK_SEC      * SAMPLE_RATE)
 LA = int(LOOKAHEAD_SEC  * SAMPLE_RATE)
 
+TOTAL_LEN = LB + CK + LA
+
 WINDOW = LB + CK + LA   # 4 secondi = 64000 campioni
 ADVANCE = CK            # avanza di 2 secondi = 32000 campioni
 
@@ -79,6 +81,7 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
     if buffer is None:
         buffer = np.zeros(0, dtype=np.float32)
         setattr(context, 'buffer', buffer)
+    first_block = getattr(context, 'first_block', True)
     
     try:
     # create buffer window and update buffer
@@ -86,8 +89,8 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
             pcm_buffer = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
             buffer = np.concatenate([buffer, pcm_buffer])
             setattr(context, 'buffer', buffer)
-            #window, buffer = build_window_from_buffer(buffer, final_flush=False)   
-            window = pcm_buffer
+            window, buffer = build_window_from_buffer(buffer, final_flush=False)   
+            #window = pcm_buffer
             if window is None: 
                 return void_response()
             
@@ -95,16 +98,21 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
             #central = window[LB : LB + CK]   # float32 [-1,1]
             wav = torch.from_numpy(window).unsqueeze(0)  # (1, T)
             spec = spec_transform(wav, args)
-            dev=args.device  #cuda #cpu
-            spec = melspec_transform(spec, args).to(dev)
+            spec = melspec_transform(spec, args).to(args.device)
             valid_len = torch.tensor([spec.size(2)])
             encoder = model(spec, valid_len)
-            enc = encoder[5]   # (B, T_enc, D)
-            #B, T_full, D = enc.shape
-            #enc_central = enc[:, LB_e : LB_e + CK_e, :]
+            enc = encoder[5]   
+            B, T_full, D = enc.shape
+            enc_central = None
+            if first_block:
+                enc_central = enc
+                first_block = False
+                setattr(context, 'first_block', first_block)
+            else:
+                enc_central = enc[:, LB_e : LB_e + CK_e, :]
             # decodifica
             transc = None
-            transc = inf.stream_decoder(emission=enc, partial=True)
+            transc = inf.stream_decoder(emission=enc_central, partial=True)
             # if dev == "cpu":
             #     transc = inf.ctc_predict_(encoder[5])
             # if dev == "cuda":        
