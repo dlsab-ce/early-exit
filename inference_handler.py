@@ -106,8 +106,7 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
             enc_central = None
             if first_block:
                 enc_central = enc
-                first_block = False
-                setattr(context, 'first_block', first_block)
+                setattr(context, 'first_block', False)
             else:
                 enc_central = enc[:, LB_e : LB_e + CK_e, :]
             # decodifica
