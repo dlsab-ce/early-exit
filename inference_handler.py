@@ -105,6 +105,7 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
             B, T_full, D = enc.shape
             enc_central = None
             if first_block:
+                context.logger.info(f"first block")
                 enc_central = enc
                 setattr(context, 'first_block', False)
             else:
