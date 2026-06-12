@@ -1,4 +1,5 @@
 import logging
+import time
 import nuclio_sdk
 
 from util.audio_utils import read_audio_to_lpcm_bytes
@@ -11,18 +12,25 @@ logger = logging.getLogger(__name__)
 def process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate=16000):
     """
     Divide l'array di byte LPCM in chunk e invoca il handler per ogni chunk.
+    Introduce un delay tra i chunk per simulare uno streaming real time.
     
     Args:
         context: Contesto nuclio
         lpcm_bytes (bytes): Array di byte LPCM
         chunk_size (int): Numero di byte per chunk
-        sample_rate (int): Frequenza di campionamento (per logging)
+        sample_rate (int): Frequenza di campionamento (per logging e calcolo delay)
     
     Esempio:
         >>> process_audio_in_chunks(context, lpcm_bytes, chunk_size=2048, sample_rate=16000)
     """
     num_chunks = (len(lpcm_bytes) + chunk_size - 1) // chunk_size
     logger.info(f"Processing {len(lpcm_bytes)} bytes in {num_chunks} chunks of {chunk_size} bytes each")
+    
+    # Calcola il delay in secondi: numero di campioni nel chunk / sample rate
+    # chunk_size è in byte, ogni campione è 2 byte (16-bit PCM)
+    samples_per_chunk = chunk_size // 2
+    chunk_duration = samples_per_chunk / sample_rate
+    logger.info(f"Chunk duration: {chunk_duration:.3f}s (for real-time streaming simulation)")
     
     results = []
     for i in range(0, len(lpcm_bytes), chunk_size):
@@ -38,6 +46,10 @@ def process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate=16000):
         except Exception as e:
             logger.error(f"Error processing chunk {chunk_num}: {str(e)}")
             results.append(None)
+        
+        # Aggiungi delay per simulare streaming real time (tranne per l'ultimo chunk)
+        if chunk_num < num_chunks:
+            time.sleep(chunk_duration)
     
     logger.info(f"All {num_chunks} chunks processed")
     return results
