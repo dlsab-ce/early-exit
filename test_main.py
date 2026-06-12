@@ -63,8 +63,9 @@ if __name__ == "__main__":
     lpcm_bytes, sample_rate = read_audio_to_lpcm_bytes("test/file.wav", sample_rate=16000, bit_depth=16, mono=True)
     
     logger.info("Starting inference handler with chunked processing...")
-    # Processa in chunk di 2048 byte (circa 128 ms a 16 kHz con 16-bit mono)
-    # Processa in chunk di 4096  byte (circa 256 ms a 16 kHz con 16-bit mono)
-    # Processa in chunk di 8192  byte (circa 512 ms a 16 kHz con 16-bit mono)    
-    chunk_size = 8192
+    # Processa in chunk di 4096 byte (circa 128 ms a 16 kHz con 16-bit mono)
+    # Processa in chunk di 8192  byte (circa 256 ms a 16 kHz con 16-bit mono)
+    # Processa in chunk di 16.384 byte (circa 512 ms a 16 kHz con 16-bit mono)   
+    # Processa in chunk di 32.768 byte (circa 1 secondo a 16 kHz con 16-bit mono) 
+    chunk_size = 16.384
     results = process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate)    
