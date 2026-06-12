@@ -65,7 +65,7 @@ if __name__ == "__main__":
     logger.info("Starting inference handler with chunked processing...")
     # Processa in chunk di 4096 byte (circa 128 ms a 16 kHz con 16-bit mono)
     # Processa in chunk di 8192  byte (circa 256 ms a 16 kHz con 16-bit mono)
-    # Processa in chunk di 16.384 byte (circa 512 ms a 16 kHz con 16-bit mono)   
-    # Processa in chunk di 32.768 byte (circa 1 secondo a 16 kHz con 16-bit mono) 
-    chunk_size = 16.384
+    # Processa in chunk di 16384 byte (circa 512 ms a 16 kHz con 16-bit mono)   
+    # Processa in chunk di 32768 byte (circa 1 secondo a 16 kHz con 16-bit mono) 
+    chunk_size = 16384
     results = process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate)    
