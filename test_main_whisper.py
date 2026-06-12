@@ -1,9 +1,8 @@
-import datetime
 import logging
 import nuclio_sdk
 import whisper
 import numpy as np
-
+from datetime import datetime
 from util.audio_utils import read_audio_to_lpcm_bytes
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s - %(name)s: %(message)s')
