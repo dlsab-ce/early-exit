@@ -130,8 +130,10 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
             #caption = transc[0]
             context.logger.info(f"caption: {caption}")
 
+            payload = {"caption": caption}
+
             return context.Response(
-                body=caption,
+                body=json.dumps(payload),
                 headers={},
                 content_type="application/json",
                 status_code=200

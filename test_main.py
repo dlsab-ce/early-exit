@@ -41,7 +41,7 @@ def process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate=16000):
         event = nuclio_sdk.Event(body=chunk)
         try:
             result = handler(context, event)
-            results.append(result.body.decode('utf-8') if result and result.body else None)
+            results.append(result.body.get("caption"))
             logger.info(f"Chunk {chunk_num} processed successfully")
         except Exception as e:
             logger.error(f"Error processing chunk {chunk_num}: {str(e)}")
