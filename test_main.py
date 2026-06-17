@@ -1,5 +1,6 @@
 import logging
 import time
+import json
 import nuclio_sdk
 
 from util.audio_utils import read_audio_to_lpcm_bytes
@@ -41,7 +42,9 @@ def process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate=16000):
         event = nuclio_sdk.Event(body=chunk)
         try:
             result = handler(context, event)
-            results.append(result.body.get("caption"))
+            # get json response and extract caption
+            result_json = json.loads(result.body)
+            results.append(result_json['caption'])
             logger.info(f"Chunk {chunk_num} processed successfully")
         except Exception as e:
             logger.error(f"Error processing chunk {chunk_num}: {str(e)}")
