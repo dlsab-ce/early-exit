@@ -27,7 +27,7 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
     if model is not None:
         result = model.transcribe(audio)
         context.logger.info(f"transcription: {result['text']}")
-        return result
+        return result['text'].strip()
 
 
 def process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate=16000):
@@ -81,12 +81,14 @@ if __name__ == "__main__":
     init_model(context, lang="en", device="cpu")
     logger.info("Model initialized successfully.")
 
-    lpcm_bytes, sample_rate = read_audio_to_lpcm_bytes("test/file.wav", sample_rate=16000, bit_depth=16, mono=True)
+    lpcm_bytes, sample_rate = read_audio_to_lpcm_bytes("test/test01_20s.wav", sample_rate=16000, bit_depth=16, mono=True)
     
     logger.info("Starting inference handler with chunked processing...")
     # Processa in chunk di 4096 byte (circa 128 ms a 16 kHz con 16-bit mono)
     # Processa in chunk di 8192  byte (circa 256 ms a 16 kHz con 16-bit mono)
     # Processa in chunk di 16384 byte (circa 512 ms a 16 kHz con 16-bit mono)   
     # Processa in chunk di 32768 byte (circa 1 secondo a 16 kHz con 16-bit mono) 
-    chunk_size = 16384
-    results = process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate)    
+    chunk_size = 163840
+    results = process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate)  
+    caption = " ".join(results) 
+    logger.info(f"Final caption: {caption}") 
