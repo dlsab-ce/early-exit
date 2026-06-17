@@ -66,7 +66,7 @@ def process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate=16000):
         except Exception as e:
             logger.error(f"Error processing chunk {chunk_num}: {str(e)}")
             results.append(None)
-            
+
         # Aggiungi delay per simulare streaming real time (tranne per l'ultimo chunk)
         if chunk_num < num_chunks:
             time.sleep(chunk_duration)
@@ -84,8 +84,9 @@ if __name__ == "__main__":
     lpcm_bytes, sample_rate = read_audio_to_lpcm_bytes("test/file.wav", sample_rate=16000, bit_depth=16, mono=True)
     
     logger.info("Starting inference handler with chunked processing...")
-    # Processa in chunk di 2048 byte (circa 128 ms a 16 kHz con 16-bit mono)
-    # Processa in chunk di 4096  byte (circa 256 ms a 16 kHz con 16-bit mono)
-    # Processa in chunk di 8192  byte (circa 512 ms a 16 kHz con 16-bit mono)    
-    chunk_size = 8192
+    # Processa in chunk di 4096 byte (circa 128 ms a 16 kHz con 16-bit mono)
+    # Processa in chunk di 8192  byte (circa 256 ms a 16 kHz con 16-bit mono)
+    # Processa in chunk di 16384 byte (circa 512 ms a 16 kHz con 16-bit mono)   
+    # Processa in chunk di 32768 byte (circa 1 secondo a 16 kHz con 16-bit mono) 
+    chunk_size = 16384
     results = process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate)    
