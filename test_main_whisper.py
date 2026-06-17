@@ -1,4 +1,5 @@
 import logging
+import time
 import nuclio_sdk
 import whisper
 import numpy as np
@@ -44,7 +45,13 @@ def process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate=16000):
     """
     num_chunks = (len(lpcm_bytes) + chunk_size - 1) // chunk_size
     logger.info(f"Processing {len(lpcm_bytes)} bytes in {num_chunks} chunks of {chunk_size} bytes each")
-    
+
+    # Calcola il delay in secondi: numero di campioni nel chunk / sample rate
+    # chunk_size è in byte, ogni campione è 2 byte (16-bit PCM)
+    samples_per_chunk = chunk_size // 2
+    chunk_duration = samples_per_chunk / sample_rate
+    logger.info(f"Chunk duration: {chunk_duration:.3f}s (for real-time streaming simulation)")
+
     results = []
     for i in range(0, len(lpcm_bytes), chunk_size):
         chunk = lpcm_bytes[i:i+chunk_size]
@@ -59,6 +66,11 @@ def process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate=16000):
         except Exception as e:
             logger.error(f"Error processing chunk {chunk_num}: {str(e)}")
             results.append(None)
+            
+        # Aggiungi delay per simulare streaming real time (tranne per l'ultimo chunk)
+        if chunk_num < num_chunks:
+            time.sleep(chunk_duration)
+
     
     logger.info(f"All {num_chunks} chunks processed")
     return results
