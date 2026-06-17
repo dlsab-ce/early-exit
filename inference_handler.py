@@ -1,4 +1,5 @@
 import os
+from unittest import result
 from urllib import request
 from torch import nn, optim
 import torchaudio
@@ -91,6 +92,7 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
             window, buffer = build_window_from_buffer(buffer, final_flush=False)   
             setattr(context, 'buffer', buffer)
             #window = pcm_buffer
+            #first_block = True
             if window is None: 
                 return void_response()
             
@@ -127,17 +129,9 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
             #transc = run(args, model, inf, audio_bytes)
             #caption = transc[0]
             context.logger.info(f"caption: {caption}")
+
             return context.Response(
-                body=json.dumps({
-                    "outputs": [
-                        {
-                            "name": "caption",
-                            "datatype": "BYTES",
-                            "shape": [1, len(caption)],
-                            "data": [caption]
-                        }
-                    ]
-                }),
+                body=caption,
                 headers={},
                 content_type="application/json",
                 status_code=200
