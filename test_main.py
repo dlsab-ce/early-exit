@@ -44,8 +44,9 @@ def process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate=16000):
             result = handler(context, event)
             # get json response and extract caption
             result_json = json.loads(result.body)
-            results.append(result_json['caption'])
-            logger.info(f"Chunk {chunk_num} processed successfully")
+            if 'caption' in result_json:
+                results.append(result_json['caption'])
+                logger.info(f"Chunk {chunk_num} processed successfully")
         except Exception as e:
             logger.error(f"Error processing chunk {chunk_num}: {str(e)}")
             results.append(None)

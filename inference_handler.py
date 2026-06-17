@@ -154,18 +154,8 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
 
 
 def void_response():
-    caption = "..."
     return nuclio_sdk.Response(
-        body=json.dumps({
-            "outputs": [
-                {
-                    "name": "caption",
-                    "datatype": "BYTES",
-                    "shape": [1, len(caption)],
-                    "data": [caption]
-                }
-            ]
-        }),
+        body=json.dumps({"caption": ""}),
         headers={},
         content_type="application/json",
         status_code=200
