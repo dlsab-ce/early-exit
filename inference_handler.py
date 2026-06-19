@@ -70,12 +70,33 @@ def melspec_transform(waveform, args):
     return melspec_t(waveform)
 
 
-def init_streaming_state(context:nuclio_sdk.Context):
-    inf = getattr(context, 'inf', None)
-    if inf:
-        inf.stream_decoder(partial=False)
-    setattr(context, 'buffer', np.zeros(0, dtype=np.float32))
-    setattr(context, 'first_block', True)
+def extract_transcription(context:nuclio_sdk.Context, encoder, partial:bool = True):
+        inf = getattr(context, 'inf', None)
+        # decodifica
+        transc = None
+        if partial:
+            transc = inf.stream_decoder(emission=encoder, partial=True)
+        else:
+            transc = inf.stream_decoder(partial=False)
+            setattr(context, 'buffer', np.zeros(0, dtype=np.float32))
+            setattr(context, 'first_block', True)
+
+        # Normalizza l’output
+        if isinstance(transc, list):
+            caption = " ".join(transc)      # <-- qui mettiamo gli spazi
+        else:
+            caption = str(transc)
+
+        context.logger.info(f"caption: {caption}")
+
+        payload = {"caption": caption}
+
+        return context.Response(
+            body=json.dumps(payload),
+            headers={},
+            content_type="application/json",
+            status_code=200
+        ) 
 
 
 def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
@@ -120,36 +141,11 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
                 setattr(context, 'first_block', False)
             else:
                 enc_central = enc[:, LB_e : LB_e + CK_e, :]
-            # decodifica
-            transc = None
-            transc = inf.stream_decoder(emission=enc_central, partial=True)
-            # if dev == "cpu":
-            #     transc = inf.ctc_predict_(encoder[5])
-            # if dev == "cuda":        
-            #     best_combined = inf.ctc_cuda_predict(encoder[5], args.tokens)
-            #     transc = args.sp.decode(best_combined[0].tokens).lower()
-            # Normalizza l’output
-            if isinstance(transc, list):
-                caption = " ".join(transc)      # <-- qui mettiamo gli spazi
-            else:
-                caption = str(transc)
-
-            #transc = run(args, model, inf, audio_bytes)
-            #caption = transc[0]
-            context.logger.info(f"caption: {caption}")
-
-            payload = {"caption": caption}
-
-            return context.Response(
-                body=json.dumps(payload),
-                headers={},
-                content_type="application/json",
-                status_code=200
-            ) 
+            
+            return extract_transcription(context, enc_central, partial=True)
         else:
             context.logger.info("No audio data received in the request: reset decoder state")
-            init_streaming_state(context)
-            return void_response()       
+            return extract_transcription(context, None, partial=False)  
     except Exception as e:
         context.logger.error(f"Error processing audio: {e}")
         return context.Response(

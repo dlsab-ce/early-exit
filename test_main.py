@@ -13,7 +13,12 @@ logger = logging.getLogger(__name__)
 def reset_decoder_state(context:nuclio_sdk.Context):
     chunk = b''  # Empty chunk to signal reset
     event = nuclio_sdk.Event(body=chunk)
-    handler(context, event)
+    result = handler(context, event)
+    # get json response and extract caption
+    result_json = json.loads(result.body)
+    if 'caption' in result_json:
+        return result_json['caption']
+    return None
 
 
 def process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate=16000):
@@ -62,6 +67,11 @@ def process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate=16000):
             time.sleep(chunk_duration)
     
     logger.info(f"All {num_chunks} chunks processed")
+    # send reset signal to decoder after processing all chunks
+    result = reset_decoder_state(context)
+    if result is not None:
+        logger.info("Decoder state reset successfully after processing all chunks")
+        results.append(result)
     return results
 
 if __name__ == "__main__":
@@ -81,4 +91,3 @@ if __name__ == "__main__":
     results = process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate)   
     caption = results[len(results)-1].strip()
     logger.info(f"Final caption: {caption}")  
-    reset_decoder_state(context)
