@@ -10,6 +10,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s - %(na
 logger = logging.getLogger(__name__)
 
 
+def reset_decoder_state(context:nuclio_sdk.Context):
+    chunk = b''  # Empty chunk to signal reset
+    event = nuclio_sdk.Event(body=chunk)
+    handler(context, event)
+
+
 def process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate=16000):
     """
     Divide l'array di byte LPCM in chunk e invoca il handler per ogni chunk.
@@ -75,3 +81,4 @@ if __name__ == "__main__":
     results = process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate)   
     caption = " ".join(results) 
     logger.info(f"Final caption: {caption}")  
+    reset_decoder_state(context)
