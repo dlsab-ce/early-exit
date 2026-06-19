@@ -147,7 +147,7 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
                 status_code=200
             ) 
         else:
-            context.logger.info("No audio data received in the request")
+            context.logger.info("No audio data received in the request: reset decoder state")
             init_streaming_state(context)
             return void_response()       
     except Exception as e:
