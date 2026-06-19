@@ -70,6 +70,14 @@ def melspec_transform(waveform, args):
     return melspec_t(waveform)
 
 
+def init_streaming_state(context:nuclio_sdk.Context):
+    inf = getattr(context, 'inf', None)
+    if inf:
+        inf.stream_decoder(partial=False)
+    setattr(context, 'buffer', np.zeros(0, dtype=np.float32))
+    setattr(context, 'first_block', True)
+
+
 def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
     context.logger.info(f"start request handler at {datetime.now().isoformat()}")
     audio_bytes = event.body
@@ -140,6 +148,7 @@ def handler(context:nuclio_sdk.Context, event: nuclio_sdk.Event):
             ) 
         else:
             context.logger.info("No audio data received in the request")
+            init_streaming_state(context)
             return void_response()       
     except Exception as e:
         context.logger.error(f"Error processing audio: {e}")
