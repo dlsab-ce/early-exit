@@ -77,8 +77,8 @@ if __name__ == "__main__":
     # Processa in chunk di 8192  byte (circa 256 ms a 16 kHz con 16-bit mono)
     # Processa in chunk di 16384 byte (circa 512 ms a 16 kHz con 16-bit mono)   
     # Processa in chunk di 32768 byte (circa 1 secondo a 16 kHz con 16-bit mono) 
-    chunk_size = 16384
+    chunk_size = 32768
     results = process_audio_in_chunks(context, lpcm_bytes, chunk_size, sample_rate)   
-    caption = " ".join(results) 
+    caption = results[len(results)-1].strip()
     logger.info(f"Final caption: {caption}")  
     reset_decoder_state(context)
