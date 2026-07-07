@@ -1,0 +1,3 @@
+streams:
+  mystream: 
+    - ffmpeg:/config/2961-960-0000.flac#audio=pcm/16000
