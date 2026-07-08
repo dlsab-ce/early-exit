@@ -1,0 +1,22 @@
+input:
+  kind: "rtsp"
+  spec:
+    url: "rtsp://source:8554/mystream"
+    media_type: "audio"
+    audio_chunk_size: 16384
+    audio_processing_interval: 256
+
+output:
+  kind: "stdout"
+
+flow:
+  type: "sequence"
+  name: "early-exit-pipeline"
+  nodes:
+    - type: "service"
+      name: "early-exit-service"
+      config:
+        kind: "http"
+        spec:
+          url: "early-exit-service:9000"
+          num_instances: 1     
