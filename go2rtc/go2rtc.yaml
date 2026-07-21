@@ -1,5 +1,5 @@
 streams:
   mystream: 
     - ffmpeg:/shared/2961-960-0000.flac#audio=pcm/16000
-  test: 
+  webradio:
     - ffmpeg:https://replaynewsit.ice.infomaniak.ch/replaynewsen-128.mp3#input=file#audio=pcm/16000
