@@ -1,7 +1,21 @@
 import numpy as np
 import torchaudio
 import torch
+import soundfile as sf
 from typing import Tuple, Optional
+
+def load_audio_pi(audio_path):
+    # Load the audio data and sample rate
+    data, samplerate = sf.read(audio_path, dtype='float32')
+
+    # Convert to PyTorch tensor and reshape to (channels, time)
+    waveform = torch.from_numpy(data).T
+
+    # Ensure mono audio has a channel dimension: (1, time)
+    if waveform.ndim == 1:
+        waveform = waveform.unsqueeze(0)
+    
+    return waveform, samplerate
 
 
 def read_audio_to_lpcm_bytes(
@@ -29,6 +43,7 @@ def read_audio_to_lpcm_bytes(
     """
     # Carica il file audio
     waveform, original_sr = torchaudio.load(audio_path)
+    # waveform, original_sr = load_audio_pi(audio_path)
     
     # Determina il sample rate da usare
     target_sr = sample_rate if sample_rate is not None else original_sr
